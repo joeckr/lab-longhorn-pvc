@@ -1,0 +1,96 @@
+[tools]
+betterleaks = "latest"
+"go:github.com/google/addlicense" = "v1.2.0"
+trivy = "v0.74.0"
+helm = "v3.14.0"
+actionlint = "v1.7.1"
+shellcheck = "latest"
+zizmor = "latest"
+hk = "latest"
+pkl = "latest"
+tombi = "latest"
+yamllint = "latest"
+
+[tasks.install]
+description = "Install tools, hook up hooks, and prepare environment"
+run = """
+hk install --mise
+"""
+
+[tasks.compose]
+description = "Run Podman Compose for local lab"
+run = """
+podman compose up -d
+"""
+
+[tasks.down]
+description = "Stop Podman Compose"
+run = """
+podman compose down
+"""
+
+[tasks.play]
+description = "Run Podman Play for local helm chart testing"
+depends = ["helm-t"]
+run = """
+podman play kube rendered.yaml --publish-all
+"""
+
+[tasks.play-d]
+description = "Run Podman Play for local helm chart testing"
+depends = ["helm-d"]
+run = """
+podman play kube rendered.yaml --down
+"""
+
+[tasks.logs]
+description = "View Podman Compose logs"
+run = """
+podman compose logs -f
+"""
+
+[tasks.hk]
+description = "Run hk checks on all files"
+alias = "check"
+run = """
+hk check --all
+"""
+
+[tasks.helm-l]
+description = "Lint Helm chart"
+depends = ["helm-d"]
+run = """
+helm lint chart/
+"""
+
+[tasks.helm-t]
+description = "Render Helm chart templates"
+depends = ["helm-d"]
+run = """
+helm template test chart/ > rendered.yaml
+"""
+
+[tasks.helm-i]
+description = "Install Helm chart"
+depends = ["helm-d"]
+run = """
+helm install test chart/
+"""
+
+[tasks.helm-u]
+description = "Uninstall Helm chart"
+run = """
+helm uninstall test
+"""
+
+[tasks.helm-d]
+description = "Build Helm chart dependencies"
+run = """
+helm dependency build chart/
+"""
+
+[tasks.trivy-fs]
+description = "Run Trivy on the file system"
+run = """
+trivy fs .
+"""

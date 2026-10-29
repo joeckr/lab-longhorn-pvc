@@ -1,0 +1,29 @@
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Helm Packaging
+*.tgz
+.helm-packages/
+
+# Mise Local Configuration
+.mise.local.toml
+
+# Local Experimentation Artifacts
+*.log
+.discovered_charts.txt
+
+# Helm charts
+rendered.yaml

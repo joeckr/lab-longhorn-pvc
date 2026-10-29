@@ -1,0 +1,6 @@
+apiVersion: v2
+name: lab-service
+description: Helm chart for experimenting with new services in a lab environment
+type: application
+version: 0.2.1
+appVersion: "0.2.1"

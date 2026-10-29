@@ -1,0 +1,43 @@
+amends "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Builtins.pkl"
+
+steps {
+  ["no-commit-to-branch"] = Builtins.no_commit_to_branch
+  ["trailing-whitespace"] = Builtins.trailing_whitespace
+  ["newlines"] = Builtins.newlines
+  ["check-merge-conflict"] = Builtins.check_merge_conflict
+  ["check-added-large-files"] = Builtins.check_added_large_files
+  ["forbid-submodules"] = Builtins.forbid_submodules
+  ["check-json"] = Builtins.jq
+  ["check-xml"] = Builtins.xmllint
+  ["actionlint"] = Builtins.actionlint
+  ["zizmor"] = Builtins.zizmor
+  ["shellcheck"] = Builtins.shellcheck
+  ["betterleaks"] = Builtins.betterleaks
+  ["pkl"] = Builtins.pkl
+  ["tombi"] = Builtins.tombi
+  ["tombi-format"] = Builtins.tombi_format
+  ["yamllint"] = (Builtins.yamllint) {
+    exclude = List("**/templates/**")
+    check = "yamllint -d '{extends: default, rules: {comments: {min-spaces-from-content: 1}, line-length: {max: 140, level: warning}, truthy: {check-keys: false}, document-start: disable}}' --strict {{files}}"
+  }
+
+  ["addlicense"] {
+    types = List("python", "go", "javascript", "rust")
+    check = "addlicense -check -c 'Joseph Christopher King' -l mit {{files}}"
+    fix = "addlicense -c 'Joseph Christopher King' -l mit -v {{files}}"
+  }
+
+  ["helm-lint"] {
+    glob = Regex(#"^.*(Chart\.yaml|values\.yaml|templates/.*\\.yaml)$"#)
+    check = "helm lint chart/"
+  }
+}
+
+hooks {
+  ["commit-msg"] {
+    steps {
+      ["check_conventional_commit"] = Builtins.check_conventional_commit
+    }
+  }
+}
