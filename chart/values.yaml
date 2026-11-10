@@ -1,43 +1,105 @@
-app:
-  name: lab-service
-  image: nginxinc/nginx-unprivileged
-  tag: alpine
-  pullPolicy: Always
-  replicaCount: 1
-  port: 8080
-  env: "lab"
-  resources:
-    limits:
-      cpu: 250m
-      memory: 256Mi
-  securityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
-    capabilities:
-      drop:
-        - ALL
-  podSecurityContext:
-    runAsNonRoot: true
-    seccompProfile:
-      type: RuntimeDefault
-    fsGroup: 1031
-  tolerations:
-    - key: "node-role.kubernetes.io/control-plane"
-      operator: "Exists"
-      effect: "NoSchedule"
-    - key: "node-role.kubernetes.io/master"
-      operator: "Exists"
-      effect: "NoSchedule"
+# Privileged Namespace configuration for Kubernetes Pod Security Admission (PSA).
+# Longhorn requires hostPath (/dev, /proc, /var/lib/longhorn), Bidirectional mount
+# propagation, hostNetwork/hostPID (CSI plugin), and privileged containers to manage
+# distributed block storage on cluster nodes.
+namespace:
+  # Keep false when installing into `longhorn-system` via Helm CLI (`helm upgrade --install`),
+  # because Helm requires the release namespace to exist prior to rendering templates
+  # (apply `manifests/namespace.yaml` first, or use `mise run helm-i`).
+  # Set true when rendering standalone manifests (`helm template`) or GitOps workflows
+  # that apply Namespace resources directly from chart output.
+  create: false
+  name: longhorn-system
+  podSecurity:
+    enforce: privileged
+    enforceVersion: latest
+    audit: privileged
+    auditVersion: latest
+    warn: privileged
+    warnVersion: latest
+  labels: {}
+  annotations:
+    helm.sh/resource-policy: keep
 
-service:
-  name: lab-service
-  type: ClusterIP
-  port: 8080
+# Optional extra Kubernetes StorageClasses provisioned alongside Longhorn's default `longhorn` class.
+additionalStorageClasses: []
+# Example: Retain-policy StorageClass for stateful databases
+# - name: longhorn-retain
+#   defaultClass: false
+#   reclaimPolicy: Retain
+#   volumeBindingMode: WaitForFirstConsumer
+#   allowVolumeExpansion: true
+#   parameters:
+#     numberOfReplicas: "2"
+#     staleReplicaTimeout: "30"
+#     dataLocality: "best-effort"
+#     fsType: "ext4"
 
-ingress:
-  enabled: true
-  name: lab-ingress
-  host: "test.joeckr.dev" # add your own domain
-  className: "nginx"
-  path: /
-  pathType: "Prefix"
+# Official Longhorn subchart configuration overrides.
+# Upstream chart reference: https://github.com/longhorn/longhorn/blob/v1.13.0/chart/values.yaml
+longhorn:
+  # Pin all Longhorn resources and RBAC bindings to `longhorn-system` when rendered as a subchart.
+  namespaceOverride: "longhorn-system"
+
+  global:
+    # Allow user-deployed Longhorn pods (Manager, Global Manager, Driver Deployer, UI, Jobs)
+    # to schedule onto control-plane nodes in compact clusters.
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+  persistence:
+    createStorageClass: true
+    defaultClass: true
+    defaultFsType: ext4
+    # Compact cluster default: 2 replicas across nodes with best-effort local replica placement.
+    defaultClassReplicaCount: 2
+    defaultDataLocality: best-effort
+    reclaimPolicy: Delete
+    volumeBindingMode: Immediate
+
+  csi:
+    # Standard kubelet root directory.
+    kubeletRootDir: "/var/lib/kubelet"
+    # Sized to 2 replicas for compact clusters while preserving HA failover.
+    attacherReplicaCount: 2
+    provisionerReplicaCount: 2
+    resizerReplicaCount: 2
+    snapshotterReplicaCount: 2
+
+  longhornGlobalManager:
+    # Sized to 2 replicas (1 active leader + 1 warm standby) for compact clusters.
+    replicas: 2
+
+  longhornUI:
+    replicas: 2
+
+  preUpgradeChecker:
+    # Set `jobEnabled: false` when deploying via Argo CD, which converts `pre-upgrade` hooks
+    # into `PreSync` hooks that otherwise run before `longhorn-service-account` exists on first sync.
+    jobEnabled: true
+    upgradeVersionCheck: true
+
+  defaultSettings:
+    # Default host path on cluster nodes used for storing Longhorn volume replicas.
+    defaultDataPath: "/var/lib/longhorn"
+    # Default replica count for volumes created via Longhorn UI/API (matches StorageClass default of 2).
+    defaultReplicaCount:
+      v1: "2"
+      v2: "2"
+    defaultDataLocality: "best-effort"
+    # Allow Longhorn system-managed pods (instance-manager, engine-image, csi-plugin, sidecars)
+    # to schedule on control-plane nodes (`key:effect` without `=` uses Exists operator).
+    taintToleration: "node-role.kubernetes.io/control-plane:NoSchedule;node-role.kubernetes.io/master:NoSchedule"
+
+  ingress:
+    enabled: false
+    ingressClassName: ~
+    host: sslip.io
+    tls: false
+    path: /
+    pathType: Prefix

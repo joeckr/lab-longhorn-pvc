@@ -14,9 +14,10 @@ Thumbs.db
 *.swo
 *~
 
-# Helm Packaging
+# Helm Packaging & Downloaded Subcharts
 *.tgz
 .helm-packages/
+chart/charts/
 
 # Mise Local Configuration
 .mise.local.toml
@@ -25,5 +26,5 @@ Thumbs.db
 *.log
 .discovered_charts.txt
 
-# Helm charts
+# Helm Rendered Output
 rendered.yaml
