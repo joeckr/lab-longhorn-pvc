@@ -29,7 +29,7 @@ steps {
   }
 
   ["helm-lint"] {
-    glob = Regex(#"^.*(Chart\.yaml|values\.yaml|templates/.*\\.yaml)$"#)
+    glob = Regex(#"^.*(Chart\.yaml|values\.yaml|templates/.*\.(yaml|tpl|txt))$"#)
     check = "helm lint chart/"
   }
 }
