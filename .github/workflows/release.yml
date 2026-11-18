@@ -20,3 +20,5 @@ jobs:
     uses: joeckr/ci-templates/.github/workflows/push-helm-ghcr.yml@578d91388a3f7862fb51c4d2e685586a4d7d1daf  # v1.20.3
     with:
       charts-dir: 'chart'
+      helm-repos: |
+        longhorn https://charts.longhorn.io
