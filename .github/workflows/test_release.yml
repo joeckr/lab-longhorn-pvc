@@ -13,6 +13,8 @@ jobs:
     with:
       charts-dir: 'chart'
       dry-run: true
+      helm-repos: |
+        longhorn https://charts.longhorn.io
   release:
     permissions:
       contents: write

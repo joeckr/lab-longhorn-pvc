@@ -17,43 +17,25 @@ run = """
 hk install --mise
 """
 
-[tasks.compose]
-description = "Run Podman Compose for local lab"
-run = """
-podman compose up -d
-"""
-
-[tasks.down]
-description = "Stop Podman Compose"
-run = """
-podman compose down
-"""
-
-[tasks.play]
-description = "Run Podman Play for local helm chart testing"
-depends = ["helm-t"]
-run = """
-podman play kube rendered.yaml --publish-all
-"""
-
-[tasks.play-d]
-description = "Run Podman Play for local helm chart testing"
-depends = ["helm-d"]
-run = """
-podman play kube rendered.yaml --down
-"""
-
-[tasks.logs]
-description = "View Podman Compose logs"
-run = """
-podman compose logs -f
-"""
-
 [tasks.hk]
 description = "Run hk checks on all files"
 alias = "check"
 run = """
 hk check --all
+"""
+
+[tasks.helm-d]
+description = "Build Helm chart dependencies"
+run = """
+helm repo add longhorn https://charts.longhorn.io --force-update
+helm dependency build chart/
+"""
+
+[tasks.helm-up]
+description = "Update Helm chart dependencies and Chart.lock"
+run = """
+helm repo add longhorn https://charts.longhorn.io --force-update
+helm dependency update chart/
 """
 
 [tasks.helm-l]
@@ -64,29 +46,36 @@ helm lint chart/
 """
 
 [tasks.helm-t]
-description = "Render Helm chart templates"
+description = "Render Helm chart templates to rendered.yaml"
 depends = ["helm-d"]
 run = """
-helm template test chart/ > rendered.yaml
+helm template longhorn chart/ --namespace longhorn-system > rendered.yaml
+"""
+
+[tasks.helm-ns]
+description = "Apply privileged Pod Security Standard namespace for Longhorn"
+run = """
+kubectl apply -f manifests/namespace.yaml
 """
 
 [tasks.helm-i]
-description = "Install Helm chart"
-depends = ["helm-d"]
+description = "Install or upgrade Longhorn Helm chart in longhorn-system"
+depends = ["helm-d", "helm-ns"]
 run = """
-helm install test chart/
+helm upgrade --install longhorn chart/ --namespace longhorn-system
 """
 
 [tasks.helm-u]
-description = "Uninstall Helm chart"
+description = "Uninstall Longhorn Helm chart from longhorn-system"
 run = """
-helm uninstall test
+kubectl -n longhorn-system patch settings.longhorn.io deleting-confirmation-flag --type=merge -p '{"value":"true"}' || true
+helm uninstall longhorn --namespace longhorn-system
 """
 
-[tasks.helm-d]
-description = "Build Helm chart dependencies"
+[tasks.ui]
+description = "Port-forward Longhorn UI to http://localhost:8080"
 run = """
-helm dependency build chart/
+kubectl -n longhorn-system port-forward svc/longhorn-frontend 8080:80
 """
 
 [tasks.trivy-fs]

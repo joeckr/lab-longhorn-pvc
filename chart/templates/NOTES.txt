@@ -1,0 +1,19 @@
+Longhorn (v{{ .Chart.AppVersion }}) has been deployed via {{ .Chart.Name }} (v{{ .Chart.Version }}).
+
+1. Verify the `{{ .Values.longhorn.namespaceOverride | default .Release.Namespace }}` namespace enforces `privileged` Pod Security Standards:
+   kubectl get ns {{ .Values.longhorn.namespaceOverride | default .Release.Namespace }} --show-labels
+
+2. Check Longhorn component rollout and node storage readiness:
+   kubectl -n {{ .Values.longhorn.namespaceOverride | default .Release.Namespace }} get pods
+   kubectl -n {{ .Values.longhorn.namespaceOverride | default .Release.Namespace }} get nodes.longhorn.io
+   kubectl get storageclass
+
+3. Access the Longhorn UI locally:
+   kubectl -n {{ .Values.longhorn.namespaceOverride | default .Release.Namespace }} port-forward svc/longhorn-frontend 8080:80
+   # Open http://localhost:8080
+
+NOTE (Restricted PSS Workloads):
+Application namespaces remain under `restricted` Pod Security Standards.
+When mounting Longhorn PVCs in non-root pods (`runAsNonRoot: true`), set `spec.securityContext.fsGroup`
+(e.g., `fsGroup: 1031` and `fsGroupChangePolicy: OnRootMismatch`) so kubelet grants group write permissions
+on newly formatted ext4/xfs volumes.

@@ -1,31 +1,23 @@
-# skeleton-lab-service
+# lab-longhorn-pvc
 
-A starter skeleton repository tailored for rapid experimentation, prototyping, and testing of services in a lab environment (local container runtimes and Kubernetes).
-
-> **Note**: This repository intentionally **does NOT include a Dockerfile**. If a custom image build is required, use an OCI image repository (such as `skeleton-oci-modified`). Lab repositories focus on configuring, deploying, and testing upstream or pre-built container services.
+Source of truth, documentation, and Helm umbrella chart extending the official [Longhorn](https://longhorn.io/) Helm chart (`v1.13.0`) for deployment into Kubernetes clusters enforcing `restricted` **Pod Security Standards (PSS)** by default.
 
 ---
 
 ## Features
 
-- **Helm Chart (`chart/`)**:
-  - Out-of-the-box support for deploying services to Kubernetes.
-  - Parameterized upstream container image (`image:tag`), replica count, and ports.
-  - Standard Kubernetes Ingress support (`networking.k8s.io/v1`).
-  - Secure defaults: non-root execution (`runAsNonRoot: true`), `RuntimeDefault` seccomp profile, and dropping `ALL` capabilities.
-  - Master and control-plane node tolerations for compact lab clusters.
-- **Compose (`compose.yml`)**:
-  - Spin up and test the lab service locally in seconds without requiring a cluster.
-  - Pre-configured with port forwarding, and healthchecks.
+- **Helm Umbrella Chart (`chart/`)**:
+  - Wraps and locks the upstream `longhorn/longhorn` (`v1.13.0`) Helm chart.
+  - Pins all Longhorn workloads and RBAC subjects to `longhorn-system` (`namespaceOverride: "longhorn-system"`).
+  - Pre-configured defaults for compact clusters: `2` replicas, `best-effort` data locality, and control-plane node tolerations across both Helm-managed and Longhorn-spawned pods.
+  - Optional declarative `Namespace` template (`chart/templates/namespace.yaml`) and extra `StorageClass` definitions (`chart/templates/storageclass.yaml`).
+- **Privileged Namespace Manifest (`manifests/namespace.yaml`)**:
+  - Standalone `Namespace` manifest configuring `pod-security.kubernetes.io/{enforce,audit,warn}: privileged` specifically for `longhorn-system` before Helm installation.
 - **Environment & Tooling (`mise` & `hk`)**:
-  - `mise.toml`: Tool version management (`helm`, `betterleaks`, `addlicense`, `trivy`, `actionlint`, `shellcheck`, `zizmor`, `hk`, `pkl`, `tombi`, `yamllint`) and convenient task aliases.
+  - `mise.toml`: Tool version management (`helm`, `betterleaks`, `addlicense`, `trivy`, `actionlint`, `shellcheck`, `zizmor`, `hk`, `pkl`, `tombi`, `yamllint`) and convenient deployment task aliases.
   - `hk.pkl`: Fast git hooks and project checks enforcing Conventional Commits, branch protection, secret scanning (`betterleaks`), Helm linting, workflow linting (`actionlint`), security audits (`zizmor`), YAML linting (`yamllint`), TOML linting (`tombi`), shell checking (`shellcheck`), and license checks (`addlicense`).
 - **GitHub Actions CI (`.github/workflows/`)**:
-  - Reusable workflows powered by [`joeckr/ci-templates`](https://github.com/joeckr/ci-templates):
-    - `lint.yml`: Lints GitHub Actions workflow syntax (`actionlint`), Conventional Commits (`commitlint`), and shell scripts (`shellcheck`).
-    - `security.yml`: Scans commits and PRs for secret leaks (`betterleaks`) and workflow security audits (`zizmor`).
-    - `release.yml`: Automated Semantic Versioning, git tagging, release notes, `Chart.yaml` version syncing (`semantic`), and packaging/publishing Helm charts to GitHub Container Registry (GHCR) as OCI artifacts.
-    - `test_release.yml`: PR dry-run preview for Semantic Versioning and Helm chart packaging.
+  - Reusable workflows powered by [`joeckr/ci-templates`](https://github.com/joeckr/ci-templates) for linting, secret/workflow scanning, Semantic Versioning, and publishing the packaged Helm chart to GitHub Container Registry (GHCR) as an OCI artifact.
 
 ---
 
@@ -40,235 +32,296 @@ A starter skeleton repository tailored for rapid experimentation, prototyping, a
 │       ├── release.yml          # Semantic release and Helm chart publishing to GHCR
 │       └── test_release.yml     # PR dry-run test for releases and chart packaging
 ├── chart/
-│   ├── Chart.yaml               # Helm chart definition
-│   ├── values.yaml              # Default configuration values
+│   ├── Chart.yaml               # Umbrella Helm chart definition extending longhorn/longhorn
+│   ├── Chart.lock               # Locked upstream Longhorn chart digest
+│   ├── values.yaml              # Default configuration values and upstream overrides
 │   ├── .helmignore              # Ignore rules for chart packaging
 │   └── templates/
-│       ├── deployment.yaml      # Workload deployment
-│       ├── service.yaml         # Kubernetes Service
-│       └── ingress.yaml         # Kubernetes Ingress
-├── scripts/
-│   └── template.sh              # Helper script placeholder
-├── compose.yml                  # Local lab service definition
+│       ├── _helpers.tpl         # Chart label and naming helpers
+│       ├── namespace.yaml       # Optional privileged Namespace resource for GitOps/template rendering
+│       ├── storageclass.yaml    # Optional additional Longhorn StorageClasses
+│       └── NOTES.txt            # Post-install verification instructions
+├── manifests/
+│   └── namespace.yaml           # Declarative `longhorn-system` Namespace with `privileged` PSA labels
 ├── hk.pkl                       # hk git hooks and checks configuration
-├── mise.toml                    # Mise tools and tasks
+├── mise.toml                    # Mise tools and operational tasks
 └── README.md
 ```
 
 ---
 
-## Security & Hardened Image Architecture
+## Architecture & Pod Security Standards (PSS)
 
-Modern hardened Kubernetes environments prioritize workload security and least privilege by enforcing strict runtime constraints. This repository is architected to produce rootless, hardened container images that run out-of-the-box under restricted security standards without requiring root privileges.
+Hardened Kubernetes clusters enforce the **Pod Security Admission (PSA)** `restricted` profile across user namespaces by default. While application workloads run rootless with all Linux capabilities dropped, **Longhorn** is a kernel-integrated distributed block storage and CSI system that requires elevated host privileges inside its isolated `longhorn-system` namespace—without weakening the `restricted` posture of application namespaces consuming Longhorn PVCs.
 
-### Hardened Container Standards (Kubernetes PSS `restricted`)
+```mermaid
+flowchart TB
+    subgraph Nodes["Kubernetes Cluster Nodes"]
+        Deps["Host Prerequisites: open-iscsi + mount utilities"]
+        Data["Host Storage Path: /var/lib/longhorn"]
+    end
 
-Under the Kubernetes **Pod Security Admission (PSA)** `restricted` profile and modern hardened container runtimes:
-- **Must Run As Non-Root**: The pod specification sets `securityContext.runAsNonRoot: true` with a dedicated non-root UID (`USER 1031` or dynamic non-root UID). Containers cannot execute as UID 0.
-- **Arbitrary Dynamic UIDs**: Workload environments may assign dynamic arbitrary non-root UIDs. Files and directories required at runtime are configured with group 0 permissions (`chgrp -R 0` and `chmod -R g+rwX`) so any non-root UID can execute and access required assets.
-- **Drop All Capabilities**: The container specification explicitly drops all Linux capabilities (`capabilities.drop: ["ALL"]`).
-- **Disallow Privilege Escalation**: Pods enforce `securityContext.allowPrivilegeEscalation: false` to prevent child processes from acquiring additional privileges.
-- **RuntimeDefault Seccomp**: Workloads enforce `seccompProfile: { type: RuntimeDefault }` to restrict syscalls to safe defaults.
-- **Credential Protection**: Hardened with `automountServiceAccountToken: false` to avoid leaking Kubernetes API tokens to application containers unless explicitly needed.
-- **Unprivileged Ports**: Containers listen on non-privileged ports (> 1024).
-- **Standard Ingress & Storage**: Uses standard Kubernetes `networking.k8s.io/v1` `Ingress` and standard CSI PersistentVolumeClaims.
+    subgraph PrivilegedNS["Namespace: longhorn-system (PSS: privileged)"]
+        Mgr["longhorn-manager & global-manager"]
+        IM["instance-manager & engine-image"]
+        CSI["longhorn-csi-plugin & CSI sidecars"]
+        SC["StorageClass: longhorn (2 replicas, best-effort)"]
+    end
 
-### Compliance Matrix
+    subgraph RestrictedNS["Application Namespaces (PSS: restricted)"]
+        Pod["Unprivileged App Pod (runAsNonRoot: true, fsGroup: 1031)"]
+        PVC["PersistentVolumeClaim (storageClassName: longhorn)"]
+    end
 
-| Security Dimension | Restricted Standard Requirement | Implementation in This Repo |
+    Nodes --> PrivilegedNS
+    Mgr --> IM
+    Mgr --> CSI
+    CSI --> SC
+    PVC --> SC
+    Pod --> PVC
+```
+
+### Why `longhorn-system` Requires `privileged` Pod Security
+
+A `baseline` or `restricted` PSS profile blocks Longhorn pods at admission time because Longhorn's control and data plane components perform host-level storage operations:
+
+| Component | Required Privileges | Reason |
 |---|---|---|
-| **Workload Execution** | Non-root UID (`runAsNonRoot: true`) | Unprivileged container image (`nginx-unprivileged`) + `runAsNonRoot: true` |
-| **Group Permissions** | GID 0 (`root` group) with `g+rwX` | Configured for arbitrary UIDs and group 0 compatibility |
-| **Capabilities** | Must drop `ALL` capabilities | `capabilities.drop: ["ALL"]` in Helm chart |
-| **Privilege Escalation** | Prohibited (`allowPrivilegeEscalation: false`) | Configured in Helm `securityContext` |
-| **Seccomp Profile** | `RuntimeDefault` or `Localhost` | `seccompProfile: { type: RuntimeDefault }` |
-| **Service Account Token** | Disabled unless required | `automountServiceAccountToken: false` in pod spec |
-| **Port Binding** | Unprivileged (> 1024) | Listens on port `8080` |
-| **Ingress Layer** | Standard Kubernetes Ingress | Kubernetes Ingress (`networking.k8s.io/v1`) |
+| `longhorn-manager` (`DaemonSet`) | `privileged: true`, `hostPath` (`/dev`, `/proc`, `/boot`, `/etc`, `/var/lib/longhorn`), `mountPropagation: Bidirectional` | Discovers host disks, manages node block devices, and coordinates volume mounts with host propagation. |
+| `instance-manager` & `engine-image` | `privileged: true`, `hostPath` | Manages block replicas, iSCSI targets (`iscsid`/`iscsiadm`), and data engines per node. |
+| `longhorn-csi-plugin` (`DaemonSet`) | `privileged: true`, `hostNetwork: true`, `hostPID: true`, `mountPropagation: Bidirectional` | Attaches iSCSI block devices on the host, formats filesystems (`ext4`/`xfs`), and bind-mounts volumes into `/var/lib/kubelet/pods`. |
+| `longhorn-driver-deployer` & Upgrade Jobs | `runAsUser: 0` / `privileged: true` | Bootstraps CSI deployments and performs pre-upgrade host kernel/environment checks. |
+| **Consumer Workloads (Other Namespaces)** | **None (`restricted` PSS compliant)** | **Run with `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`, `seccompProfile: RuntimeDefault`, and `fsGroup` for PVC write access.** |
+
 ---
 
-## Local Environment & Podman Setup
+## Cluster Prerequisites
 
-To ensure containerized applications and Helm charts tested locally run cleanly when deployed to hardened Kubernetes environments, this repository is designed to be used alongside the Podman configuration in [joeckr/dotfiles](https://github.com/joeckr/dotfiles).
+Before deploying this chart, ensure your Kubernetes cluster meets the following requirements:
 
-The dotfiles repository provides a centralized [`containers.conf`](https://github.com/joeckr/dotfiles/blob/main/containers/containers.conf) (deployed to `~/.config/containers/containers.conf`) that configures Podman to enforce rootless and hardened container runtime restrictions in testing:
+1. **Node Storage Utilities**:
+   - **Standard Linux distributions**: `open-iscsi` (`iscsid` running and enabled), `util-linux` (`findmnt`, `grep`, `awk`, `blkid`, `lsblk`), and `curl` installed on each storage node. (Install `nfs-common` / `nfs-utils` if using `ReadWriteMany` volumes, or `cryptsetup` / `dmsetup` if using encrypted volumes.)
+   - **Immutable OS distributions (e.g., Talos Linux)**: Ensure system extensions providing `iscsi-tools` and `util-linux-tools` are installed on participating nodes.
+2. **Privileged `longhorn-system` Namespace**:
+   - In clusters enforcing `restricted` or `baseline` PSA cluster-wide, the `longhorn-system` namespace must carry `pod-security.kubernetes.io/enforce: privileged` (provided in [`manifests/namespace.yaml`](manifests/namespace.yaml)) and, if your API server admission configuration restricts privileged namespaces, be listed in the `PodSecurity` admission controller's `exemptions.namespaces`.
 
-| Security Rule | Podman Configuration | Description |
+---
+
+## Chart Defaults & Customizations
+
+[`chart/values.yaml`](chart/values.yaml) extends the upstream `longhorn/longhorn` (`1.13.0`) chart with defaults tuned for compact clusters:
+
+| Setting | Default in `chart/values.yaml` | Purpose |
 |---|---|---|
-| **Random UID (`MustRunAsRange`)** | `userns = "auto"` | Allocates dynamic subordinate UID/GID ranges from `/etc/subuid` and `/etc/subgid`. Containers run unprivileged without mapping host root. |
-| **Drop Capabilities** | `default_capabilities = ["NET_BIND_SERVICE"]` | Drops standard root capabilities (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID`, `SETGID`, `SYS_CHROOT`, etc.) and permits only `NET_BIND_SERVICE`. |
-| **Disallow Privileged** | `privileged = false` | Disallows privileged container execution by default. |
-| **Seccomp Profile** | `seccomp_profile = "/usr/share/containers/seccomp.json"` | Enforces the runtime default seccomp profile (`RuntimeDefault`). |
-| **Namespace Isolation** | `cgroupns`, `ipcns`, `pidns`, `utsns = "private"` | Enforces private container namespaces (host namespaces are forbidden in restricted profiles). |
-
-### macOS Podman Machine Integration
-
-On macOS, the dotfiles installer script (`brew/podman.sh`) automates the machine lifecycle:
-
-1. Deploys `containers/containers.conf` to `~/.config/containers/containers.conf` on the host.
-2. Initializing `podman machine init` automatically mounts `~/.config/containers` into `/etc/containers` inside the Fedora CoreOS VM.
-3. Automatically symlinks `/etc/containers/containers.conf` to the VM user's config (`~core/.config/containers/containers.conf`) and restarts the Podman API service so all container executions immediately enforce these constraints.
+| `longhorn.namespaceOverride` | `"longhorn-system"` | Pins all Longhorn resources and RBAC `ClusterRoleBinding` subjects to `longhorn-system` when rendered as a subchart. |
+| `longhorn.global.tolerations` | `control-plane` & `master` (`Exists`, `NoSchedule`) | Allows Helm-managed workloads (`longhorn-manager`, `longhorn-global-manager`, `longhorn-driver-deployer`, `longhorn-ui`, hook Jobs) to schedule on tainted control-plane nodes. |
+| `longhorn.defaultSettings.taintToleration` | `node-role.kubernetes.io/control-plane:NoSchedule;...` | Allows Longhorn's dynamically spawned system pods (`instance-manager`, `engine-image`, `longhorn-csi-plugin`, CSI sidecars) to schedule on control-plane nodes. |
+| `longhorn.csi.kubeletRootDir` | `"/var/lib/kubelet"` | Standard kubelet root directory for the CSI plugin. |
+| `longhorn.defaultSettings.defaultDataPath` | `"/var/lib/longhorn"` | Host directory on cluster nodes where Longhorn stores volume replicas. |
+| `longhorn.persistence.defaultClassReplicaCount` | `2` | Default replica count for PVCs using the default `longhorn` `StorageClass`. |
+| `longhorn.defaultSettings.defaultReplicaCount` | `{ v1: "2", v2: "2" }` | Matches UI/API volume creation replica defaults to the `StorageClass` replica count. |
+| `longhorn.persistence.defaultDataLocality` | `best-effort` | Prefers keeping a local replica on the same node as the consuming pod to reduce network I/O without blocking scheduling. |
+| `longhorn.csi.*ReplicaCount` & `longhornGlobalManager.replicas` | `2` | Right-sizes CSI sidecar controllers and Global Manager replicas for compact clusters while retaining HA failover. |
+| `additionalStorageClasses` | `[]` | Optional list to declaratively create extra `StorageClass` presets (e.g., `longhorn-retain` with `reclaimPolicy: Retain`). |
 
 ---
 
-## Testing & Validation Process
+## Deployment
 
-This repository defines a 3-tier testing process to validate container security, manifest generation, and runtime compatibility from local development through to production cluster deployment.
+### Option 1: Helm CLI via `mise`
 
-```
-┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
-│ Tier 1: Local Container │ ──> │ Tier 2: Podman Play     │ ──> │ Tier 3: K8s Cluster     │
-│ Fast local prototyping  │     │ Validate K8s manifests  │     │ Live Helm verification  │
-│ (compose.yml)           │     │ (podman play kube)      │     │ (helm install)          │
-└─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
-```
-
-### Tier 1: Local Container Validation (`compose.yml`)
-
-The [`compose.yml`](compose.yml) configuration runs the service container locally using Podman Compose:
+> [!IMPORTANT]
+> Do **not** rely on `helm install --create-namespace` alone on a cluster enforcing `restricted` PSA by default. Helm's `--create-namespace` creates an **unlabeled** namespace, causing PSA to reject Longhorn's privileged DaemonSets and hook Jobs. Always apply [`manifests/namespace.yaml`](manifests/namespace.yaml) first—`mise run helm-i` automates this dependency automatically.
 
 ```sh
-# Start container in detached mode
-mise run compose
-# or: podman compose up -d
-
-# View container logs
-mise run logs
-# or: podman compose logs -f
-
-# Verify connectivity
-curl http://localhost:8080
-
-# Stop container
-mise run down
-# or: podman compose down
-```
-
-**What this verifies:**
-- Unprivileged user execution without host root privileges.
-- Unprivileged port binding on port `8080`.
-- Health check verification and local volume mount handling.
-
----
-
-### Tier 2: Local Kubernetes Manifest Testing (`mise run play`)
-
-Before deploying to an actual Kubernetes cluster, you can test the rendered Kubernetes manifests locally using Podman's built-in `play kube` feature.
-
-```sh
-# Render templates and play Kubernetes manifests locally
-mise run play
-
-# Teardown the played pod and resources
-mise run play-d
-```
-
-**How `mise run play` works:**
-1. Triggers the dependent task `mise run helm-t`, which executes:
-   ```sh
-   helm dependency build chart/
-   helm template test chart/ > rendered.yaml
-   ```
-2. Executes `podman play kube rendered.yaml --publish-all`, which:
-   - Reads the multi-document Kubernetes YAML (`Deployment`, `Service`).
-   - Creates a local Podman pod matching the Kubernetes `Deployment` specification.
-   - Applies the pod's `securityContext` (`runAsNonRoot: true`, capabilities drop, seccomp profile).
-   - Exposes container port `8080`.
-
-**Inspecting the local play deployment:**
-```sh
-# View running pods created by play kube
-podman pod ps
-
-# View container status within the pod
-podman ps --filter "pod=lab-service"
-
-# Verify service response
-curl http://localhost:8080
-
-# Check container logs within the pod
-podman logs -f lab-service-pod-lab-service
-```
-
-**Teardown:**
-```sh
-mise run play-d
-# or: podman play kube rendered.yaml --down
-```
-
----
-
-### Tier 3: Cluster Deployment & Testing on Kubernetes (`mise run helm-i`)
-
-The final phase validates the workload on a live Kubernetes cluster. This tests real-world Pod Security Admission (PSA) enforcement, network routing, and container startup under production constraints.
-
-#### 1. Cluster Prerequisites & Configuration
-
-Ensure your `kubectl` context points to your Kubernetes cluster:
-```sh
-kubectl config current-context
-```
-
-Verify that the target namespace enforces the `restricted` Pod Security Standard:
-```sh
-kubectl get ns default --show-labels
-# Should include:
-# pod-security.kubernetes.io/enforce=restricted
-# pod-security.kubernetes.io/enforce-version=latest
-```
-
-#### 2. Linting & Template Validation
-
-Run the linter and inspect the generated manifests before cluster deployment:
-```sh
+# 1. Lint and preview rendered manifests locally
 mise run helm-l
 mise run helm-t
 
-```
-
-#### 3. Deploying to the Cluster
-
-Install the Helm chart release:
-```sh
+# 2. Apply privileged `longhorn-system` namespace and install/upgrade Longhorn
 mise run helm-i
-# or: helm install test chart/
+
+# 3. Verify pods, storage nodes, and StorageClass
+kubectl -n longhorn-system get pods
+kubectl -n longhorn-system get nodes.longhorn.io
+kubectl get storageclass
+
+# 4. Access the Longhorn UI locally at http://localhost:8080
+mise run ui
 ```
 
-#### 4. Verifying PSS Compliance & Health
+### Option 2: GitOps via GHCR OCI Chart
 
-Check the pod status and verify that Kubernetes Pod Security Admission (PSA) allowed the pod to run:
+Upon release, GitHub Actions packages `chart/` (bundling the locked `longhorn` subchart dependency) and publishes it as an OCI artifact to GHCR.
 
-```sh
-# Check pod deployment status
-kubectl get pods -l app=lab-service
+#### Flux CD (`OCIRepository` + `HelmRelease`)
 
-# Inspect pod details and events for security policy rejections
-kubectl describe pod -l app=lab-service
+Ensure `manifests/namespace.yaml` is applied (or manage the `Namespace` with the `privileged` PSA labels in Flux):
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/warn-version: latest
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: OCIRepository
+metadata:
+  name: lab-longhorn-pvc
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/joeckr/charts/lab-longhorn-pvc
+  ref:
+    semver: ">=0.1.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+spec:
+  interval: 30m
+  targetNamespace: longhorn-system
+  chartRef:
+    kind: OCIRepository
+    name: lab-longhorn-pvc
+    namespace: flux-system
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
 ```
 
-> [!TIP]
-> If your namespace enforces the `restricted` Pod Security Standard and there are non-compliant settings (such as missing `runAsNonRoot` or un-dropped capabilities), `kubectl describe pod` will show warning events from the `pod-security` admission controller.
+#### Argo CD (`Application`)
 
-Check the application logs:
-```sh
-kubectl logs -l app=lab-service -f
+When deploying with Argo CD:
+1. Use `managedNamespaceMetadata` with `CreateNamespace=true` so Argo CD labels `longhorn-system` as `privileged` before syncing workloads.
+2. Override `longhorn.preUpgradeChecker.jobEnabled: false` because Argo CD maps Helm `pre-upgrade` hooks to `PreSync`, which would otherwise run on initial install before `longhorn-service-account` exists.
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/joeckr/charts
+    chart: lab-longhorn-pvc
+    targetRevision: 0.1.0
+    helm:
+      valuesObject:
+        longhorn:
+          preUpgradeChecker:
+            jobEnabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: longhorn-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+        pod-security.kubernetes.io/enforce-version: latest
+        pod-security.kubernetes.io/audit: privileged
+        pod-security.kubernetes.io/audit-version: latest
+        pod-security.kubernetes.io/warn: privileged
+        pod-security.kubernetes.io/warn-version: latest
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
 ```
 
-Verify service access via port-forwarding:
-```sh
-# Forward port 8080 from the cluster pod
-kubectl port-forward svc/lab-service 8080:8080
+---
 
-# In a separate shell, test HTTP response
-curl http://localhost:8080
+## Consuming Longhorn PVCs in `restricted` PSS Namespaces
+
+Application namespaces remain strictly under `pod-security.kubernetes.io/enforce=restricted`. Because newly formatted `ext4`/`xfs` block volumes are owned by `root:root` (`0755`) by default, non-root containers (`runAsNonRoot: true`) **must** set `spec.securityContext.fsGroup` so `kubelet` automatically grants group write access on the mounted volume without requiring root `initContainers`.
+
+### End-to-End Verification Snippet
+
+You can verify dynamic PVC provisioning inside a `restricted` namespace (such as `default`) with the following self-contained test:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: longhorn-restricted-test
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: longhorn-restricted-test
+  namespace: default
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1031
+    runAsGroup: 1031
+    fsGroup: 1031
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: writer
+      image: busybox:1.37
+      command:
+        - sh
+        - -c
+        - "echo 'hello from restricted pod' > /data/test.txt && cat /data/test.txt && sleep 3600"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: longhorn-restricted-test
 ```
 
-#### 5. Uninstalling from the Cluster
+Clean up after verifying `kubectl logs longhorn-restricted-test`:
 
-When testing is complete, clean up the release:
 ```sh
+kubectl delete pod/longhorn-restricted-test pvc/longhorn-restricted-test -n default
+```
+
+---
+
+## Uninstalling Longhorn
+
+To protect persistent data against accidental deletion, Longhorn blocks uninstallation until the `deleting-confirmation-flag` setting is explicitly set to `"true"`. The `mise run helm-u` task patches this setting automatically before uninstalling:
+
+```sh
+# 1. Patch deleting-confirmation-flag and uninstall the Helm release
 mise run helm-u
-# or: helm uninstall test
+
+# 2. Optionally remove the namespace once cleanup finishes
+kubectl delete -f manifests/namespace.yaml
 ```
 
 ---
@@ -277,7 +330,7 @@ mise run helm-u
 
 ### Setup
 
-```bash
+```sh
 # Install tools and git hooks
 mise run install
 ```
@@ -290,16 +343,14 @@ Run tasks with `mise run <task>`:
 |---|---|---|
 | `install` | Install tools and set up git hooks | `hk install --mise` |
 | `hk` (or `check`) | Run all linters and hook checks | `hk check --all` |
-| `compose` | Start local container stack with Podman Compose | `podman compose up -d` |
-| `down` | Stop local Podman Compose stack | `podman compose down` |
-| `logs` | View Podman Compose logs | `podman compose logs -f` |
-| `play` | Test Helm chart manifests locally with Podman Play Kube | `podman play kube rendered.yaml --publish-all` |
-| `play-d` | Stop and remove Podman Play Kube pods | `podman play kube rendered.yaml --down` |
-| `helm-d` | Build Helm chart dependencies | `helm dependency build chart/` |
-| `helm-l` | Lint Helm chart | `helm lint chart/` |
-| `helm-t` | Render Helm chart templates to `rendered.yaml` | `helm template test chart/ > rendered.yaml` |
-| `helm-i` | Install Helm chart to current Kubernetes cluster | `helm install test chart/` |
-| `helm-u` | Uninstall Helm chart release from cluster | `helm uninstall test` |
+| `helm-d` | Add Longhorn Helm repo and build chart dependencies | `helm dependency build chart/` |
+| `helm-up` | Update upstream Longhorn dependency and `Chart.lock` | `helm dependency update chart/` |
+| `helm-l` | Lint Helm umbrella chart | `helm lint chart/` |
+| `helm-t` | Render Helm chart templates to `rendered.yaml` | `helm template longhorn chart/ --namespace longhorn-system > rendered.yaml` |
+| `helm-ns` | Apply `privileged` PSS `longhorn-system` namespace | `kubectl apply -f manifests/namespace.yaml` |
+| `helm-i` | Apply privileged namespace and install/upgrade Longhorn | `helm upgrade --install longhorn chart/ --namespace longhorn-system` |
+| `helm-u` | Confirm deletion flag and uninstall Longhorn from `longhorn-system` | `helm uninstall longhorn --namespace longhorn-system` |
+| `ui` | Port-forward Longhorn UI to `http://localhost:8080` | `kubectl -n longhorn-system port-forward svc/longhorn-frontend 8080:80` |
 | `trivy-fs` | Scan repository filesystem for security vulnerabilities | `trivy fs .` |
 
 ---
