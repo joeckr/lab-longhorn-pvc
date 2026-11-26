@@ -19,10 +19,12 @@ hk install --mise
 """
 
 [tasks.repo-settings]
-description = "Configure GitHub repository settings and default-branch protection ruleset"
+description = "Configure GitHub repository settings, security alerts, and default-branch protection ruleset"
 run = """
 if command -v gh >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   gh repo edit --delete-branch-on-merge --enable-auto-merge || true
+  gh api -X PUT 'repos/{owner}/{repo}/vulnerability-alerts' >/dev/null 2>&1 || true
+  gh api -X PUT 'repos/{owner}/{repo}/automated-security-fixes' >/dev/null 2>&1 || true
   payload='{"name":"Protect default branch","target":"branch","enforcement":"active","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}'
   ruleset_id="$(gh api 'repos/{owner}/{repo}/rulesets' --jq '.[] | select(.name == "Protect default branch") | .id' 2>/dev/null | head -n1 || true)"
   if [ -n "$ruleset_id" ]; then
