@@ -12,9 +12,18 @@ tombi = "latest"
 yamllint = "latest"
 
 [tasks.install]
-description = "Install tools, hook up hooks, and prepare environment"
+description = "Install tools, hook up hooks, configure repo settings, and prepare environment"
+depends = ["repo-settings"]
 run = """
 hk install --mise
+"""
+
+[tasks.repo-settings]
+description = "Configure GitHub repository settings (delete merged branches, enable auto-merge)"
+run = """
+if command -v gh >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  gh repo edit --delete-branch-on-merge --enable-auto-merge || true
+fi
 """
 
 [tasks.hk]
