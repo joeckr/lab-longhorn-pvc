@@ -6,6 +6,10 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    assignees:
+      - "joeckr"
+    reviewers:
+      - "joeckr"
     commit-message:
       prefix: "fix"
       include: "scope"
@@ -15,6 +19,10 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    assignees:
+      - "joeckr"
+    reviewers:
+      - "joeckr"
     groups:
       github-actions:
         patterns:
