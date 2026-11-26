@@ -9,7 +9,7 @@ jobs:
   release:
     permissions:
       contents: write
-    uses: joeckr/ci-templates/.github/workflows/semantic.yml@697db8faa5f8d3fa5ec15ef35674aa1e855d3a33  # v1.23.1
+    uses: joeckr/ci-templates/.github/workflows/semantic.yml@6cd1b691f0f8aa3e52366007220d6b007d685275  # v1.24.0
 
   helm:
     needs: [release]
@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: joeckr/ci-templates/.github/workflows/push-helm-ghcr.yml@697db8faa5f8d3fa5ec15ef35674aa1e855d3a33  # v1.23.1
+    uses: joeckr/ci-templates/.github/workflows/push-helm-ghcr.yml@6cd1b691f0f8aa3e52366007220d6b007d685275  # v1.24.0
     with:
       charts-dir: 'chart'
       helm-repos: |

@@ -14,13 +14,13 @@ jobs:
   actionlint:
     permissions:
       contents: read
-    uses: joeckr/ci-templates/.github/workflows/actionlint.yml@697db8faa5f8d3fa5ec15ef35674aa1e855d3a33  # v1.23.1
+    uses: joeckr/ci-templates/.github/workflows/actionlint.yml@6cd1b691f0f8aa3e52366007220d6b007d685275  # v1.24.0
   commitlint:
     permissions:
       contents: read
       pull-requests: read  # required to fetch PR metadata
-    uses: joeckr/ci-templates/.github/workflows/commitlint.yml@697db8faa5f8d3fa5ec15ef35674aa1e855d3a33  # v1.23.1
+    uses: joeckr/ci-templates/.github/workflows/commitlint.yml@6cd1b691f0f8aa3e52366007220d6b007d685275  # v1.24.0
   shellcheck:
     permissions:
       contents: read
-    uses: joeckr/ci-templates/.github/workflows/shellcheck.yml@697db8faa5f8d3fa5ec15ef35674aa1e855d3a33  # v1.23.1
+    uses: joeckr/ci-templates/.github/workflows/shellcheck.yml@6cd1b691f0f8aa3e52366007220d6b007d685275  # v1.24.0
