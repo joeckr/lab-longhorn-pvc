@@ -1,5 +1,14 @@
 version: 2
 updates:
+  - package-ecosystem: "helm"
+    directory: "/chart"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "fix"
+      include: "scope"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
