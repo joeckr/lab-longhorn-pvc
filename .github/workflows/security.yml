@@ -6,13 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   betterleaks:
     permissions:
       contents: read
-    uses: joeckr/ci-templates/.github/workflows/betterleaks.yml@578d91388a3f7862fb51c4d2e685586a4d7d1daf  # v1.20.3
+    uses: joeckr/ci-templates/.github/workflows/betterleaks.yml@1c6283577ea8eabcda150cb4f2a9749b3c610b1d  # v1.24.1
   zizmor:
     permissions:
       contents: read
       security-events: write  # required to upload SARIF results to GitHub Advanced Security
-    uses: joeckr/ci-templates/.github/workflows/zizmor.yml@578d91388a3f7862fb51c4d2e685586a4d7d1daf  # v1.20.3
+    uses: joeckr/ci-templates/.github/workflows/zizmor.yml@1c6283577ea8eabcda150cb4f2a9749b3c610b1d  # v1.24.1

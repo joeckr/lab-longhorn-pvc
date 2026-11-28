@@ -1,0 +1,16 @@
+name: Dependabot Auto-Merge
+
+on:
+  pull_request_target:  # zizmor: ignore[dangerous-triggers] -- no PR checkout; gated to Dependabot
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.id == 49699333
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    uses: joeckr/ci-templates/.github/workflows/dependabot-auto-merge.yml@1c6283577ea8eabcda150cb4f2a9749b3c610b1d  # v1.24.1
